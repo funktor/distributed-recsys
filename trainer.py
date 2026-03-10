@@ -30,14 +30,10 @@ mp.set_start_method('spawn', force=True)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-def ddp_setup():
+def ddp_setup(rank_local, rank_global, world_size):
     """
     Setup DDP
     """
-    rank_local  = int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"])
-    rank_global = int(os.environ["OMPI_COMM_WORLD_RANK"])
-    world_size  = int(os.environ["OMPI_COMM_WORLD_SIZE"])
-
     init_process_group(backend="nccl", world_size=world_size, rank=rank_global)
     torch.cuda.set_device(rank_local)
 
@@ -295,13 +291,13 @@ def train_func(config: dict):
     Main training method
     """
     try:
+        rank_local  = int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"]) if "OMPI_COMM_WORLD_LOCAL_RANK" in os.environ else int(os.environ["LOCAL_RANK"])
+        rank_global = int(os.environ["OMPI_COMM_WORLD_RANK"]) if "OMPI_COMM_WORLD_RANK" in os.environ else int(os.environ["RANK"])
+        world_size  = int(os.environ["OMPI_COMM_WORLD_SIZE"]) if "OMPI_COMM_WORLD_SIZE" in os.environ else int(os.environ["WORLD_SIZE"])
+
         print("Setting up DDP...")
         if dist.is_initialized() is False:
-            ddp_setup()
-
-        rank_local  = int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"])
-        rank_global = int(os.environ["OMPI_COMM_WORLD_RANK"])
-        world_size  = int(os.environ["OMPI_COMM_WORLD_SIZE"])
+            ddp_setup(rank_local, rank_global, world_size)
 
         num_gpu_workers = int(torch.cuda.device_count())
 
@@ -583,7 +579,7 @@ def train_func(config: dict):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Ray-based UEM Model Training')
+    parser = argparse.ArgumentParser(description='Distributed Recommender System Training')
 
     parser.add_argument('--gcs_bucket', type=str, required=True,
                         help='GCS Bucket')
@@ -609,90 +605,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     train_func(vars(args))
-
-    """
-    pip install --upgrade Cython
-    python setup_ml_32m_gcp.py bdist_wheel
-    pip install --force-reinstall dist/*.whl
-
-    nvidia-smi --query-compute-apps=pid --format=csv,noheader | xargs -n1 kill -9
-
-    nohup torchrun \
-        --standalone \
-        --nnodes=1 \
-        --nproc_per_node=8 \
-        trainer.py \
-            --gcs_bucket "r6-ae-dev-adperf-adintelligence-data" \
-            --gcs_prefix "amondal"  \
-            --gcs_data_dir "parquet_dataset_ml_32m" \
-            --batch_size 128 \
-            --num_epochs 10 \
-            --num_workers 4 \
-            --accumulate_grad_batches 4 \
-            --model_out_dir "/tmp/model_outputs" >output.log 2>&1 &
-
-
-
-    nohup torchrun \
-        --nnodes=2 \
-        --node_rank=0 \
-        --master_addr=240.76.44.135 \
-        --master_port=29500 \
-        --nproc_per_node=8 \
-        trainer.py \
-            --gcs_bucket "r6-ae-dev-adperf-adintelligence-data" \
-            --gcs_prefix "amondal"  \
-            --gcs_data_dir "parquet_dataset_ml_32m" \
-            --batch_size 128 \
-            --num_epochs 10 \
-            --num_workers 4 \
-            --accumulate_grad_batches 4 \
-            --model_out_dir "/tmp/model_outputs" >output.log 2>&1 &
-
-
-    nohup torchrun \
-        --nnodes=2 \
-        --node_rank=1 \
-        --master_addr=240.76.44.135 \
-        --master_port=29500 \
-        --nproc_per_node=8 \
-        trainer.py \
-            --gcs_bucket "r6-ae-dev-adperf-adintelligence-data" \
-            --gcs_prefix "amondal"  \
-            --gcs_data_dir "parquet_dataset_ml_32m" \
-            --batch_size 128 \
-            --num_epochs 10 \
-            --num_workers 4 \
-            --accumulate_grad_batches 4 \
-            --model_out_dir "/tmp/model_outputs" >output.log 2>&1 &
-
-
-    nohup mpirun -np 16 \
-        -H 240.76.37.135:8,240.76.41.135:8 \
-        -x MASTER_ADDR=240.76.37.135 \
-        -x MASTER_PORT=29500 \
-        -x PATH \
-        -bind-to none -map-by slot \
-        -mca pml ob1 -mca btl ^openib \
-        python \
-            /home/ray/trainer.py \
-                --gcs_bucket "r6-ae-dev-adperf-adintelligence-data" \
-                --gcs_prefix "amondal"  \
-                --gcs_data_dir "parquet_dataset_ml_32m" \
-                --batch_size 128 \
-                --num_epochs 10 \
-                --num_workers 4 \
-                --accumulate_grad_batches 4 \
-                --model_out_dir "/tmp/model_outputs" >output.log 2>&1 &
-
-    sudo apt update
-    sudo apt install openssh-server -y
-    sudo service ssh start
-
-    On the destination pod
-    mkdir -p ~/.ssh
-    chmod 700 ~/.ssh
-    # Append the copied key (paste the output from 'cat ~/.ssh/id_rsa.pub' here)
-    echo "PASTE_YOUR_PUBLIC_KEY_HERE" >> ~/.ssh/authorized_keys
-    chmod 600 ~/.ssh/authorized_keys
-    """

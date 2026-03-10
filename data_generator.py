@@ -305,10 +305,16 @@ def delete_gcp_folder(bucket_name:str, folder_path:str):
         print(e)
 
 
-def run_dp_pipeline(dataset_path):
+def run_dp_pipeline(config):
     """
     Run pipeline
     """
+
+    dataset_path = config["dataset_path_local"]
+    gcs_bucket = config["gcs_bucket"]
+    gcs_prefix = config["gcs_prefix"]
+    gcs_data_dir = config["gcs_data_dir"]
+    min_rated = config["min_num_ratings"]
 
     print("Reading datasets from path...")
     df_ratings, df_movies = get_ml_32m_dataframe(dataset_path)
@@ -317,10 +323,12 @@ def run_dp_pipeline(dataset_path):
     df_ratings = normalize_ratings(df_ratings)
 
     print("Splitting into train test and validation...")
-    df_ratings_train, df_ratings_val, df_ratings_test = split_train_test(df_ratings, min_rated=10)
+    df_ratings_train, df_ratings_val, df_ratings_test = \
+        split_train_test(df_ratings, min_rated=min_rated)
 
     print("Fitting vocabulary...")
-    vocabulary, df_ratings_train, df_movies = fit_vocabulary(df_ratings_train, df_movies)
+    vocabulary, df_ratings_train, df_movies = \
+        fit_vocabulary(df_ratings_train, df_movies)
 
     print("Vocabulary on validation...")
     df_ratings_val = score_vocabulary(df_ratings_val, vocabulary)
@@ -341,16 +349,42 @@ def run_dp_pipeline(dataset_path):
     get_historical_user_features_cpp(df_ratings_full)
 
     print("Saving parquet files...")
-    save_dfs_parquet("parquet_dataset_ml_32m", vocabulary, df_ratings_train, df_ratings_val, df_ratings_test, df_ratings_full, df_movies, num_partitions=32)
+    save_dfs_parquet(
+        gcs_data_dir, 
+        vocabulary, 
+        df_ratings_train, 
+        df_ratings_val, 
+        df_ratings_test, 
+        df_ratings_full, 
+        df_movies, 
+        num_partitions=32
+    )
 
     print("Deleting existing folder in cloud...")
-    delete_gcp_folder("r6-ae-dev-adperf-adintelligence-data", "amondal/parquet_dataset_ml_32m")
+    delete_gcp_folder(gcs_bucket, f"{gcs_prefix}/{gcs_data_dir}")
 
     print("Uploading to cloud...")
-    upload_directory_with_transfer_manager("r6-ae-dev-adperf-adintelligence-data", "parquet_dataset_ml_32m", "amondal/parquet_dataset_ml_32m/")
+    upload_directory_with_transfer_manager(
+        gcs_bucket, 
+        gcs_data_dir, 
+        f"{gcs_prefix}/{gcs_data_dir}"
+    )
 
 if __name__ == '__main__':
-    dataset_path = "datasets/ml-32m"
-    run_dp_pipeline(dataset_path)
+    parser = argparse.ArgumentParser(description='Data Generator for Distributed Recsys')
+
+    parser.add_argument('--dataset_path_local', type=str, required=True,
+                        help='Local path to dataset')
+    parser.add_argument('--gcs_bucket', type=str, required=True,
+                        help='GCS Bucket')
+    parser.add_argument('--gcs_prefix', type=str, required=True,
+                        help='GCS Prefix')
+    parser.add_argument('--gcs_data_dir', type=str, required=True,
+                        help='Path to GCS data directory')
+    parser.add_argument('--min_num_ratings', type=int, default=10,
+                        help='Minimum number of ratings per user to consider')
+
+    args = parser.parse_args()
+    run_dp_pipeline(vars(args))
 
 
