@@ -1,6 +1,8 @@
 # distributed-recsys
 Distributed Recommender System
 
+Prerequisite - Distributed GPU cluster setup in GCP
+
 ## Setup
 ```
 git clone https://github.com/funktor/distributed-recsys.git
@@ -51,8 +53,8 @@ nohup torchrun \
 
 ## Run on 2 nodes each with 8 GPUs
 ```
-# Get IP addresses of nodes/pods. If using kubernetes pods, run `kubectl get pods -o wide`
-# On master node with IP address `240.76.44.135`
+# Get IP addresses of nodes/pods. If using kubernetes pods, run kubectl get pods -o wide
+# On master node with IP address 240.76.44.135
 
 cd ~/distributed-recsys
 nohup torchrun \
